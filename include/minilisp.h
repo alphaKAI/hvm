@@ -3,8 +3,6 @@
 
 #include "hvm.h"
 
-#define __ENABLE_DIRECT_THREADED_CODE__
-
 typedef struct {
   size_t pc;
 } Registers;

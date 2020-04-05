@@ -797,6 +797,7 @@ SexpObject *vm_exec(Vector *v_ins) {
   Frame *frame = new_Frame();
   frame->v_ins = v_ins;
   register Registers *reg = frame->registers;
+  size_t bop_argc = 0;
 
   static void *table[] = {
       &&L_OpPop,      &&L_OpPush,       &&L_OpAllocLvars,  &&L_OpFreeLvars,
@@ -903,12 +904,33 @@ L_OP_SELECT:
     push_Stack_VValue(stack, new_SexpObject_bool(cmp_VMValue(l, r) >= 0));
   });
   DTHC_CASE(OpPrint, {
-    VMValue *val = pop_Stack(stack);
-    printf("%s", show_VMValue(val));
+    VMValue **values = xnewN(VMValue *, bop_argc);
+
+    for (size_t i = 0; i < bop_argc; i++) {
+      values[bop_argc - i - 1] = (VMValue *)pop_Stack(stack);
+    }
+
+    VMValue *val;
+    for (size_t i = 0; bop_argc > 0; bop_argc--, i++) {
+      val = values[i];
+      printf("%s", show_VMValue(val));
+    }
+    xfree(&values);
   });
   DTHC_CASE(OpPrintln, {
-    VMValue *val = pop_Stack(stack);
-    printf("%s\n", show_VMValue(val));
+    VMValue **values = xnewN(VMValue *, bop_argc);
+
+    for (size_t i = 0; i < bop_argc; i++) {
+      values[bop_argc - i - 1] = (VMValue *)pop_Stack(stack);
+    }
+
+    VMValue *val;
+    for (size_t i = 0; bop_argc > 0; bop_argc--, i++) {
+      val = values[i];
+      printf("%s", show_VMValue(val));
+    }
+    printf("\n");
+    xfree(&values);
   });
   DTHC_CASE(OpJumpRel, {
     long long int lv = (long long int)(intptr_t)frame->v_ins->data[reg->pc++];
@@ -924,7 +946,7 @@ L_OP_SELECT:
     int bop = get_builtin(func_name);
     if (bop != -1) {
       op = bop;
-      reg->pc++; // skip argc
+      bop_argc = (size_t)frame->v_ins->data[reg->pc++];
       goto L_OP_SELECT;
     }
 
@@ -1050,6 +1072,7 @@ SexpObject *vm_exec(Vector *v_ins) {
   Frame *frame = new_Frame();
   frame->v_ins = v_ins;
   Registers *reg = frame->registers;
+  size_t bop_argc = 0;
 
 MAIN_LOOP:
   for (; reg->pc < frame->v_ins->len;) {
@@ -1155,13 +1178,33 @@ MAIN_LOOP:
       break;
     }
     case OpPrint: {
-      VMValue *val = pop_Stack(stack);
-      printf("%s", show_VMValue(val));
+      VMValue **values = xnewN(VMValue *, bop_argc);
+
+      for (size_t i = 0; i < bop_argc; i++) {
+        values[bop_argc - i - 1] = (VMValue *)pop_Stack(stack);
+      }
+
+      VMValue *val;
+      for (size_t i = 0; bop_argc > 0; bop_argc--, i++) {
+        val = values[i];
+        printf("%s", show_VMValue(val));
+      }
       break;
     }
     case OpPrintln: {
-      VMValue *val = pop_Stack(stack);
-      printf("%s\n", show_VMValue(val));
+      VMValue **values = xnewN(VMValue *, bop_argc);
+
+      for (size_t i = 0; i < bop_argc; i++) {
+        values[bop_argc - i - 1] = (VMValue *)pop_Stack(stack);
+      }
+
+      VMValue *val;
+      for (size_t i = 0; bop_argc > 0; bop_argc--, i++) {
+        val = values[i];
+        printf("%s", show_VMValue(val));
+      }
+      printf("\n");
+      xfree(&values);
       break;
     }
     case OpJumpRel: {
@@ -1180,7 +1223,7 @@ MAIN_LOOP:
       int bop = get_builtin(func_name);
       if (bop != -1) {
         op = bop;
-        reg->pc++; // skip argc
+        bop_argc = (size_t)frame->v_ins->data[reg->pc++];
         goto OP_SELECT;
       }
 
@@ -1877,6 +1920,7 @@ Vector *vm_deserialize(Vector *serialized) {
       vec_pushi(code, op);
       break;
     }
+    case OpSetVar:
     case OpVarDef:
     case OpGetVar: {
       vec_pushi(code, op);
@@ -1905,9 +1949,11 @@ Vector *vm_deserialize(Vector *serialized) {
     }
     default:
       if (0 <= op && op < (long long int)sizeof(op_to_string)) {
-        fprintf(stderr, "Unkown op given. op: %s\n", op_to_string[op]);
+        fprintf(stderr, "[ERROR in vm_deserialize] Unkown op given. op: %s\n",
+                op_to_string[op]);
       } else {
-        fprintf(stderr, "Unkown op given. op: %lld\n", op);
+        fprintf(stderr, "[ERROR in vm_deserialize] Unkown op given. op: %lld\n",
+                op);
       }
       exit(EXIT_FAILURE);
       break;
