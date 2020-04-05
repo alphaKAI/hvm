@@ -8,7 +8,7 @@
 
 int main(int argc, char const *argv[]) {
   if (argc < 2) {
-    fprintf(stderr, "usage: ./%s prog_path\n", argv[0]);
+    fprintf(stderr, "usage: %s prog_path\n", argv[0]);
     exit(EXIT_FAILURE);
   }
 
@@ -28,7 +28,7 @@ int main(int argc, char const *argv[]) {
   } else if (argc == 3) {
     const char *opt = argv[1];
 
-    if (strcmp(opt, "-c") == 0) {   //compile
+    if (strcmp(opt, "-c") == 0) { // compile
       sds code = readText(sdsnew(argv[2]));
       Vector *parsed = sexp_parse(code);
       Vector *compiled = vm_compile(parsed);
@@ -38,7 +38,7 @@ int main(int argc, char const *argv[]) {
       write_llis_to_file(compiled_name, binarized);
 
       printf("compiled finish. saved: %s\n", compiled_name);
-    } else if (strcmp(opt, "-x") == 0) { //execute
+    } else if (strcmp(opt, "-x") == 0) { // execute
       Vector *read_data = read_file_from_llis(argv[2]);
       Vector *deserialized = vm_deserialize(read_data);
       printf("compiled instructions...\n");
@@ -56,4 +56,3 @@ int main(int argc, char const *argv[]) {
 
   return 0;
 }
-
