@@ -41,40 +41,7 @@ enum {
   OpDumpEnv
 };
 
-#define FUNC_CACHE_LEN 5
-
-struct VMValue;
-
-typedef struct Env {
-  AVLTree *vars;
-  struct Env *parent;
-  bool copied;
-  struct VMValue *cached_funcs[FUNC_CACHE_LEN];
-} Env;
-
-static inline int varcmp(void *lhs, void *rhs) {
-  char *ls = (char *)lhs;
-  char *rs = (char *)rhs;
-  int ret = sdscmp(ls, rs);
-
-  if (ret < 0) {
-    return -1;
-  }
-  if (ret > 0) {
-    return 1;
-  }
-  return 0;
-}
-
-typedef struct Frame {
-  Registers *registers;
-  Env *env;
-  Vector *args;
-  struct Frame *parent;
-  Vector *lvars;
-  Vector *v_ins;
-} Frame;
-
+// ----------------------------- VMFunction ----------------------------- //
 typedef struct {
   sds name;
   Vector *code;
@@ -87,6 +54,7 @@ typedef struct {
 VMFunction *new_VMFunction(sds name, Vector *code, Vector *arg_names);
 void free_VMFunction(VMFunction **vmf_ptr);
 
+// ----------------------------- VMValue ----------------------------- //
 enum { VValue, VFunc };
 
 typedef struct {
@@ -103,8 +71,49 @@ VMValue *dup_VMValue(VMValue *value);
 VMValue *new_VMValueWithValue(SexpObject *obj);
 VMValue *new_VMValueWithFunc(VMFunction *vmf);
 
+// ----------------------------- Env ----------------------------- //
+
+#define FUNC_CACHE_LEN 5
+
+typedef struct Env {
+  AVLTree *vars;
+  struct Env *parent;
+  bool copied;
+  VMValue *cached_funcs[FUNC_CACHE_LEN];
+} Env;
+
+
+// ----------------------------- Utilities  ----------------------------- //
+static inline int varcmp(void *lhs, void *rhs) {
+  char *ls = (char *)lhs;
+  char *rs = (char *)rhs;
+  int ret = sdscmp(ls, rs);
+
+  if (ret < 0) {
+    return -1;
+  }
+  if (ret > 0) {
+    return 1;
+  }
+  return 0;
+}
+
+// ----------------------------- Frame  ----------------------------- //
+
+typedef struct Frame {
+  Registers *registers;
+  Env *env;
+  Vector *args;
+  struct Frame *parent;
+  Vector *lvars;
+  Vector *v_ins;
+} Frame;
+
+
+// ----------------------------- Internal Typedefs  ----------------------------- //
 typedef long long int Opcode;
 
+// ----------------------------- Exported prototypes  ----------------------------- //
 void vm_init(void);
 Vector *vm_compile(Vector *parsed);
 SexpObject *vm_exec(Vector *);
