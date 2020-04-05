@@ -1,9 +1,9 @@
 .PHONY: all test clean
 
-CC := cc
-CFLAGS := -Wextra -Wall -O3 -lgc
+CC := gcc
+CFLAGS := -Wextra -Wall -g  -lgc -fno-crossjumping
 
-TARGET = cplayground
+TARGET = hvm
 SRCS = \
 	$(shell find ./bin -name "*.c") \
 	$(shell find ./lib -name "*.c") \
@@ -12,7 +12,7 @@ OBJS = $(shell find ./ -name "*.o")
 
 GENERATED = generated
 
-TEST_TARGET = cplayground_test
+TEST_TARGET = hvm_lib_test
 TEST_SRCS = \
 	$(shell find ./lib -name "*.c") \
 	$(shell find ./sds -name "*.c") \
