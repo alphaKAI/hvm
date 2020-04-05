@@ -14,7 +14,7 @@
 
 void *xmalloc(size_t size) {
 #ifdef __USE_BOEHM_GC__
-  void *ptr = GC_malloc(size);
+  void *ptr = gc_malloc(size);
 #else
   void *ptr = malloc(size);
 #endif
@@ -27,7 +27,7 @@ void *xmalloc(size_t size) {
 
 void xfreeImpl(void **p_ptr) {
 #ifdef __USE_BOEHM_GC__
-  GC_free(*p_ptr);
+  gc_free(*p_ptr);
 #else
   if (p_ptr == NULL || *p_ptr == NULL) {
     fprintf(stderr, "Given pointer is NULL");
