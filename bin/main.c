@@ -6,6 +6,10 @@
 #include <gc.h>
 #endif
 
+void c_version_compiler_is_deprecated_warn() {
+  printf("[WARNING - deprecated] C version of Lisp Compiler is deprecated. You should use hcc(https://github.com/alphaKAI/hcc) instead of hcc's compiler function.\n");
+}
+
 int main(int argc, char const *argv[]) {
   if (argc < 2) {
     fprintf(stderr, "usage: %s prog_path\n", argv[0]);
@@ -21,6 +25,7 @@ int main(int argc, char const *argv[]) {
   if (argc == 2) {
     sds code = readText(sdsnew(argv[1]));
     Vector *parsed = sexp_parse(code);
+    c_version_compiler_is_deprecated_warn();
     Vector *compiled = vm_compile(parsed);
     printf("compiled instructions...\n");
     vm_ins_dump(compiled);
@@ -31,6 +36,7 @@ int main(int argc, char const *argv[]) {
     if (strcmp(opt, "-c") == 0) { // compile
       sds code = readText(sdsnew(argv[2]));
       Vector *parsed = sexp_parse(code);
+      c_version_compiler_is_deprecated_warn();
       Vector *compiled = vm_compile(parsed);
       Vector *binarized = vm_binarize(compiled);
 
