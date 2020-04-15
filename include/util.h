@@ -24,7 +24,7 @@ double parseDouble(sds);
 GenParseNumberProt(int);
 GenParseNumberProt(size_t);
 
-#include "vector.h"
+#include "hvm.h"
 
 sds vecstrjoin(Vector *strs, sds sep);
 
@@ -110,4 +110,11 @@ static inline void unimplemented_msg(char *file_path, int line, char *msg) {
 void write_llis_to_file(const char *file_name, Vector *vec);
 
 Vector *read_file_from_llis(const char *file_name);
+
+#define THROW_SEGV                                                             \
+  do {                                                                         \
+    int *i = 1;                                                                \
+    --i;                                                                       \
+    *i = 0;                                                                    \
+  } while (0)
 #endif

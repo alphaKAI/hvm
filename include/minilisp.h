@@ -52,7 +52,7 @@ typedef struct {
 } VMFunction;
 
 VMFunction *new_VMFunction(sds name, Vector *code, Vector *arg_names);
-void free_VMFunction(VMFunction **vmf_ptr);
+void free_VMFunction(VMFunction *vmf_ptr);
 
 // ----------------------------- VMValue ----------------------------- //
 enum { VValue, VFunc };
@@ -66,7 +66,7 @@ typedef struct {
 } VMValue;
 
 VMValue *new_VMValue(int ty, void *e);
-void free_VMValue(VMValue **v_ptr);
+void free_VMValue(VMValue *v_ptr);
 VMValue *dup_VMValue(VMValue *value);
 VMValue *new_VMValueWithValue(SexpObject *obj);
 VMValue *new_VMValueWithFunc(VMFunction *vmf);
@@ -81,7 +81,6 @@ typedef struct Env {
   bool copied;
   VMValue *cached_funcs[FUNC_CACHE_LEN];
 } Env;
-
 
 // ----------------------------- Utilities  ----------------------------- //
 static inline int varcmp(void *lhs, void *rhs) {
@@ -109,11 +108,12 @@ typedef struct Frame {
   Vector *v_ins;
 } Frame;
 
-
-// ----------------------------- Internal Typedefs  ----------------------------- //
+// ----------------------------- Internal Typedefs -----------------------------
+// //
 typedef long long int Opcode;
 
-// ----------------------------- Exported prototypes  ----------------------------- //
+// ----------------------------- Exported prototypes
+// ----------------------------- //
 void vm_init(void);
 Vector *vm_compile(Vector *parsed);
 SexpObject *vm_exec(Vector *);

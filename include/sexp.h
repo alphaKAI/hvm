@@ -32,7 +32,7 @@ typedef struct SexpObject {
 
 SexpObject *new_SexpObject(void);
 SexpObject *dup_SexpObject(SexpObject *obj);
-void free_SexpObject(SexpObject **obj_ptr);
+void free_SexpObject(SexpObject *obj_ptr);
 
 GenSexpObjectConstructorProtWithName(double, float);
 GenSexpObjectConstructorProtWithName(bool, bool);

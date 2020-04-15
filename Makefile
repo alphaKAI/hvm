@@ -1,7 +1,12 @@
 .PHONY: all test clean
 
-CC := gcc
-CFLAGS := -Wextra -Wall -g  -lgc -fno-crossjumping
+CC := clang
+CFLAGS := -Wextra -Wall -g  -lgc 
+
+VM_EXEC_GENERATED = lib/vm_exec.generated
+VM_EXEC_GEN_SRCS = \
+									 ./gen_vm_exec.rb \
+									 ./gen_vm_exec_generated.sh
 
 TARGET = hvm
 SRCS = \
@@ -26,6 +31,10 @@ build_test: $(TEST_TARGET)
 
 run_test:
 	$(GENERATED)/$(TEST_TARGET)
+
+gen_vm_exec: 
+	echo "GENERATE vm_exec.generated"
+	./gen_vm_exec_generated.sh
 
 $(TARGET): $(SRCS) | $(GENERATED)
 	$(CC) -o $(addprefix $(GENERATED)/, $@) $^ $(CFLAGS) -I ./include -I .

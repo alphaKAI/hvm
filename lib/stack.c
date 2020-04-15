@@ -1,7 +1,7 @@
 #include "hvm.h"
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <stdbool.h>
 
 inline Stack *new_Stack() {
   Stack *stack = xmalloc(sizeof(Stack));
@@ -11,22 +11,21 @@ inline Stack *new_Stack() {
   return stack;
 }
 
-inline void free_Stack(Stack **s_ptr, S_DATA_FREE free_func) {
-  Stack *stack = *s_ptr;
+inline void free_Stack(Stack *stack) {
 
   for (size_t i = 0; i < stack->elem_count; i++) {
-    free_func(stack->data->data[i]);
+    free_GeneralPointer(stack->data->data[i]);
   }
 
-  xfree(s_ptr);
+  free(stack);
 }
 
-inline void push_Stack(Stack *stack, void *val) {
+inline void push_Stack(Stack *stack, GeneralPointer *val) {
   stack->elem_count++;
   vec_push(stack->data, val);
 }
 
-inline void *pop_Stack(Stack *stack) {
+inline GeneralPointer *pop_Stack(Stack *stack) {
   if (stack->elem_count == 0) {
     fprintf(stderr, "<pop_Stack> Stack is empty!\n");
     exit(EXIT_FAILURE);
@@ -35,7 +34,7 @@ inline void *pop_Stack(Stack *stack) {
   return vec_pop(stack->data);
 }
 
-void *peek_Stack(Stack *stack) {
+GeneralPointer *peek_Stack(Stack *stack) {
   if (stack->elem_count == 0) {
     fprintf(stderr, "<peek_Stack> Stack is empty!\n");
     exit(EXIT_FAILURE);
@@ -44,9 +43,7 @@ void *peek_Stack(Stack *stack) {
   return stack->data->data[stack->elem_count - 1];
 }
 
-inline bool isempty_Stack(Stack *stack) {
-  return stack->elem_count == 0;
-}
+inline bool isempty_Stack(Stack *stack) { return stack->elem_count == 0; }
 
 void print_Stack(Stack *stack, S_DATA_SHOW show) {
   printf("[");
@@ -54,7 +51,7 @@ void print_Stack(Stack *stack, S_DATA_SHOW show) {
     if (i > 0) {
       printf(", ");
     }
-    printf("%s", show(stack->data->data[i]));
+    printf("%s", show(stack->data->data[i]->ptr));
   }
   printf("]\n");
 }

@@ -7,7 +7,9 @@
 #endif
 
 void c_version_compiler_is_deprecated_warn() {
-  printf("[WARNING - deprecated] C version of Lisp Compiler is deprecated. You should use hcc(https://github.com/alphaKAI/hcc) instead of hcc's compiler function.\n");
+  printf("[WARNING - deprecated] C version of Lisp Compiler is deprecated. You "
+         "should use hcc(https://github.com/alphaKAI/hcc) instead of hcc's "
+         "compiler function.\n");
 }
 
 int main(int argc, char const *argv[]) {
@@ -28,6 +30,8 @@ int main(int argc, char const *argv[]) {
     c_version_compiler_is_deprecated_warn();
     Vector *compiled = vm_compile(parsed);
     printf("compiled instructions...\n");
+    printf("compiled->len : %ld\n", compiled->len);
+    // for(size_t i = 0; i< compiled->len)
     vm_ins_dump(compiled);
     vm_exec(compiled);
   } else if (argc == 3) {

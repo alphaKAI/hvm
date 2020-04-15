@@ -14,25 +14,25 @@ AVLNode *new_AVLNode(void *key, void *value) {
   return this;
 }
 
-void free_AVLNode(AVLNode **n_ptr, ELEM_FREE free_key, ELEM_FREE free_val) {
-  if (n_ptr == NULL || *n_ptr == NULL) {
-    fprintf(stderr, "[free_AVLNode] given pointer is already freed\n");
-    exit(EXIT_FAILURE);
+void free_AVLNode(AVLNode *n_ptr, ELEM_FREE free_key, ELEM_FREE free_val) {
+  if (n_ptr == NULL) {
+    return;
+    // fprintf(stderr, "[free_AVLNode] given pointer is already freed\n");
+    // exit(EXIT_FAILURE);
   }
 
-  free_key((*n_ptr)->key);
-  free_val((*n_ptr)->value);
+  free_key(n_ptr->key);
+  free_val(n_ptr->value);
 
-  if ((*n_ptr)->left != NULL) {
-    free_AVLNode(&(*n_ptr)->left, free_key, free_val);
+  if (n_ptr->left != NULL) {
+    free_AVLNode(n_ptr->left, free_key, free_val);
   }
 
-  if ((*n_ptr)->right != NULL) {
-    free_AVLNode(&(*n_ptr)->right, free_key, free_val);
+  if (n_ptr->right != NULL) {
+    free_AVLNode(n_ptr->right, free_key, free_val);
   }
 
-  free(*n_ptr);
-  *n_ptr = NULL;
+  free(n_ptr);
 }
 
 AVLTree *new_AVLTree(ELEM_COMPARE compare) {
@@ -42,12 +42,12 @@ AVLTree *new_AVLTree(ELEM_COMPARE compare) {
   return this;
 }
 
-void free_AVLTree(AVLTree **t_ptr, ELEM_FREE free_key, ELEM_FREE free_val) {
-  if (t_ptr == NULL || *t_ptr == NULL) {
+void free_AVLTree(AVLTree *t_ptr, ELEM_FREE free_key, ELEM_FREE free_val) {
+  if (t_ptr == NULL) {
     fprintf(stderr, "[free_AVLTree] given pointer is already freed\n");
     exit(EXIT_FAILURE);
   }
-  free_AVLNode(&(*t_ptr)->root, free_key, free_val);
+  free_AVLNode(t_ptr->root, free_key, free_val);
 }
 
 static void *find_impl(AVLNode *t, void *key, ELEM_COMPARE compare) {
@@ -219,34 +219,34 @@ void avl_print_tree(AVLTree *tree, ELEM_PRINTER key_printer,
   avl_print_node(tree->root, 0, key_printer, value_printer);
 }
 
-static void collect_values(AVLNode *node, Vector *values) {
+static void collect_values(AVLNode *node, Vector *values, ELEM_FREE free_func) {
   if (node != NULL) {
-    vec_push(values, node->value);
-    collect_values(node->left, values);
-    collect_values(node->right, values);
+    vec_push(values, new_GeneralPointer(node->value, free_func));
+    collect_values(node->left, values, free_func);
+    collect_values(node->right, values, free_func);
   }
 }
 
-Vector *avl_values(AVLTree *tree) {
+Vector *avl_values(AVLTree *tree, ELEM_FREE free_func) {
   Vector *values = new_vec();
 
-  collect_values(tree->root, values);
+  collect_values(tree->root, values, free_func);
 
   return values;
 }
 
-static void collect_keys(AVLNode *node, Vector *keys) {
+static void collect_keys(AVLNode *node, Vector *keys, ELEM_FREE free_func) {
   if (node != NULL) {
-    vec_push(keys, node->key);
-    collect_keys(node->left, keys);
-    collect_keys(node->right, keys);
+    vec_push(keys, new_GeneralPointer(node->key, free_func));
+    collect_keys(node->left, keys, free_func);
+    collect_keys(node->right, keys, free_func);
   }
 }
 
-Vector *avl_keys(AVLTree *tree) {
+Vector *avl_keys(AVLTree *tree, ELEM_FREE free_func) {
   Vector *keys = new_vec();
 
-  collect_keys(tree->root, keys);
+  collect_keys(tree->root, keys, free_func);
 
   return keys;
 }

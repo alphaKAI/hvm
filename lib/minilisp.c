@@ -72,19 +72,19 @@ VMValue *new_VMValue(int ty, void *e) {
   return vmvalue;
 }
 
-void free_VMValue(VMValue **v_ptr) {
-  switch ((*v_ptr)->ty) {
+void free_VMValue(VMValue *v_ptr) {
+  switch (v_ptr->ty) {
   case VValue:
-    free_SexpObject(&(*v_ptr)->val);
+    free_SexpObject(v_ptr->val);
     break;
   case VFunc:
-    free_VMFunction(&(*v_ptr)->func);
+    free_VMFunction(v_ptr->func);
     break;
   default:
     fprintf(stderr, "Invalid type tag\n");
     exit(EXIT_FAILURE);
   }
-  xfree(v_ptr);
+  free(v_ptr);
 }
 
 VMValue *dup_VMValue(VMValue *value) {
@@ -116,17 +116,17 @@ sds show_VMValue(VMValue *val) {
     case bool_ty:
     case symbol_ty:
     case string_ty:
-      return sdscatprintf(sdsempty(), "%s",
-                          show_sexp_object_impl(val->val, false));
+      return sdscatprintf(sdsempty(), "%s (ptr: %p)",
+                          show_sexp_object_impl(val->val, false), val);
     case list_ty: {
       sds ret = sdsnew("(");
       Vector *v = val->val->list_val;
 
       for (size_t i = 0; i < v->len; i++) {
         if (i == 0) {
-          ret = sdscatprintf(ret, "%s", show_VMValue(v->data[i]));
+          ret = sdscatprintf(ret, "%s", show_VMValue(v->data[i]->ptr));
         } else {
-          ret = sdscatprintf(ret, " %s", show_VMValue(v->data[i]));
+          ret = sdscatprintf(ret, " %s", show_VMValue(v->data[i]->ptr));
         }
       }
 
@@ -207,13 +207,15 @@ static inline VMFunction *get_func_VMValue(VMValue *vmv) {
 }
 
 static inline SexpObject *pop_SexpObject_from_stack(Stack *stack) {
-  VMValue *v = (VMValue *)pop_Stack(stack);
+  VMValue *v;
+  POP_STACK_WITH_FREE(stack, v);
   assert(v->ty == VValue);
   return v->val;
 }
 
 static inline VMFunction *pop_func_from_stack(Stack *stack) {
-  VMValue *v = (VMValue *)pop_Stack(stack);
+  VMValue *v;
+  POP_STACK_WITH_FREE(stack, v);
   assert(v->ty == VFunc);
   return v->func;
 }
@@ -224,7 +226,7 @@ Registers *new_Registers(void) {
   return registers;
 }
 
-void free_Registers(Registers **registers) { xfree(registers); }
+void free_Registers(Registers *registers) { free(registers); }
 
 Env *new_Env(void) {
   Env *env = xmalloc(sizeof(Env));
@@ -237,7 +239,9 @@ Env *new_Env(void) {
   return env;
 }
 
-static inline Vector *keys_Env(Env *env) { return avl_keys(env->vars); }
+static inline Vector *keys_Env(Env *env) {
+  return avl_keys(env->vars, (ELEM_FREE)&sdsfree);
+}
 
 static inline VMValue *check_func_cache(Env *env, sds name) {
   VMValue *ret = NULL;
@@ -284,10 +288,12 @@ static inline void insert_Env_impl(Env *env, sds name, VMValue *val) {
   if (env->parent != NULL && env->copied == false) {
     Vector *keys = keys_Env(env->parent);
     for (size_t i = 0; i < keys->len; i++) {
-      sds key = keys->data[i];
-      avl_insert(env->vars, key, dup_VMValue(get_Env(env->parent, key)));
+      sds key = keys->data[i]->ptr;
+      avl_insert(env->vars, sdsdup(key),
+                 dup_VMValue(get_Env(env->parent, key)));
     }
     env->copied = true;
+    free_vec(keys);
   }
 
   avl_insert(env->vars, name, val);
@@ -326,7 +332,10 @@ Env *dup_Env(Env *env) {
 }
 
 // TODO: impl free AVL
-void free_Env(Env **env) { xfree(env); }
+void free_Env(Env *env) {
+  free_AVLTree(env->vars, (ELEM_FREE)&sdsfree, (ELEM_FREE)&free_VMValue);
+  free(env);
+}
 
 Frame *new_Frame(void) {
   Frame *frame = xmalloc(sizeof(Frame));
@@ -339,12 +348,13 @@ Frame *new_Frame(void) {
   return frame;
 }
 
-void free_Frame(Frame **frame) {
-  free_Registers(&(*frame)->registers);
-  free_Env(&(*frame)->env);
+void free_Frame(Frame *frame) {
+  free_Registers(frame->registers);
+  free_Env(frame->env);
   // TODO: Free Vector
-  xfree(&(*frame)->args);
-  xfree(frame);
+  free_vec(frame->args);
+  free_vec(frame->v_ins);
+  free(frame);
 }
 
 VMFunction *new_VMFunction(sds name, Vector *code, Vector *arg_names) {
@@ -358,26 +368,30 @@ VMFunction *new_VMFunction(sds name, Vector *code, Vector *arg_names) {
   return func;
 }
 
-void free_VMFunction(VMFunction **vmf_ptr) {
-  sdsfree((*vmf_ptr)->name);
+void free_VMFunction(VMFunction *vmf_ptr) {
+  sdsfree(vmf_ptr->name);
   // TODO: Vector destructor
+  free_vec(vmf_ptr->arg_names);
+  free_vec(vmf_ptr->code);
   xfree(vmf_ptr);
 }
 
 static double dmod(double x, double y) { return x - ((x / y) * y); }
 
 static inline void push_Stack_VValue(Stack *stack, SexpObject *val) {
-  push_Stack(stack, new_VMValueWithValue(val));
+  push_Stack(stack, new_GeneralPointer(new_VMValueWithValue(val),
+                                       (ELEM_DESTRUCTOR)&free_VMValue));
 }
 
 static inline void push_Stack_VFunc(Stack *stack, VMFunction *vmf) {
-  push_Stack(stack, new_VMValueWithFunc(vmf));
+  push_Stack(stack, new_GeneralPointer(new_VMValueWithFunc(vmf),
+                                       (ELEM_DESTRUCTOR)&free_VMValue));
 }
 
 void dump_stack(Stack *stack) {
   Vector *v = stack->data;
   for (size_t i = 0; i < v->len; i++) {
-    void *e = v->data[i];
+    void *e = v->data[i]->ptr;
     printf("stack[%ld] %p : \n", i, e);
   }
 }
@@ -404,8 +418,8 @@ Vector *vm_compile_SexpObject(SexpObject *obj);
 
 static inline void vm_compile_binary_fun(Opcode op, Vector *v, Vector *ret) {
   assert(v->len == 3);
-  SexpObject *e1 = (SexpObject *)v->data[1];
-  SexpObject *e2 = (SexpObject *)v->data[2];
+  SexpObject *e1 = (SexpObject *)v->data[1]->ptr;
+  SexpObject *e2 = (SexpObject *)v->data[2]->ptr;
   vec_append(ret, vm_compile_SexpObject(e1));
   vec_append(ret, vm_compile_SexpObject(e2));
   vec_pushi(ret, op);
@@ -414,7 +428,7 @@ static inline void vm_compile_binary_fun(Opcode op, Vector *v, Vector *ret) {
 static ssize_t check_var_name_in_arg_names(sds var_name, Vector *arg_names) {
   ssize_t found = -1;
   for (size_t i = 0; i < arg_names->len; i++) {
-    sds arg_name = (sds)arg_names->data[arg_names->len - i - 1];
+    sds arg_name = (sds)arg_names->data[arg_names->len - i - 1]->ptr;
     if (strcmp(var_name, arg_name) == 0) {
       found = i;
       break;
@@ -431,16 +445,18 @@ Vector *vm_compile_SexpObject(SexpObject *obj) {
   case bool_ty:
   case string_ty:
     vec_pushi(ret, OpPush);
-    vec_push(ret, new_VMValueWithValue(obj));
+    vec_push(ret, new_GeneralPointer(new_VMValueWithValue(obj),
+                                     (ELEM_DESTRUCTOR)&free_VMValue));
     break;
   case symbol_ty:
     vec_pushi(ret, OpGetVar);
-    vec_push(ret, obj->symbol_val);
+    vec_push(ret,
+             new_GeneralPointer(obj->symbol_val, (ELEM_DESTRUCTOR)&sdsfree));
     break;
   case list_ty: {
     Vector *v = obj->list_val;
     assert(v->len > 0);
-    SexpObject *e1 = (SexpObject *)v->data[0];
+    SexpObject *e1 = (SexpObject *)v->data[0]->ptr;
     assert(e1->ty == symbol_ty);
     sds func_name = e1->symbol_val;
 
@@ -468,16 +484,17 @@ Vector *vm_compile_SexpObject(SexpObject *obj) {
       vm_compile_binary_fun(OpGeq, v, ret);
     } else if (sdscmp(func_name, DEF_VAR_STR) == 0) { // def-var
       assert(v->len == 3);
-      SexpObject *e1 = (SexpObject *)v->data[1];
-      SexpObject *e2 = (SexpObject *)v->data[2];
+      SexpObject *e1 = (SexpObject *)v->data[1]->ptr;
+      SexpObject *e2 = (SexpObject *)v->data[2]->ptr;
       assert(e1->ty == symbol_ty);
       vec_append(ret, vm_compile_SexpObject(e2));
       vec_pushi(ret, OpVarDef);
-      vec_push(ret, e1->symbol_val);
+      vec_push(ret,
+               new_GeneralPointer(e1->symbol_val, (ELEM_DESTRUCTOR)&sdsfree));
     } else if (sdscmp(func_name, DEF_FUN_STR) == 0) { // def-fun
       assert(v->len >= 4);
-      SexpObject *e1 = (SexpObject *)v->data[1];
-      SexpObject *e2 = (SexpObject *)v->data[2];
+      SexpObject *e1 = (SexpObject *)v->data[1]->ptr;
+      SexpObject *e2 = (SexpObject *)v->data[2]->ptr;
       assert(e1->ty == symbol_ty); // func_name
       assert(e2->ty == list_ty);   // args
 
@@ -487,15 +504,16 @@ Vector *vm_compile_SexpObject(SexpObject *obj) {
         if (i == 0) {
           arg_names = new_vec();
         }
-        SexpObject *arg = (SexpObject *)args->data[i];
+        SexpObject *arg = (SexpObject *)args->data[i]->ptr;
         assert(arg->ty == symbol_ty);
-        vec_push(arg_names, arg->symbol_val);
+        vec_push(arg_names, new_GeneralPointer(arg->symbol_val,
+                                               (ELEM_DESTRUCTOR)&sdsfree));
       }
 
       Vector *func_body = new_vec();
 
       for (size_t i = 3; i < v->len; i++) {
-        SexpObject *e = (SexpObject *)v->data[i];
+        SexpObject *e = (SexpObject *)v->data[i]->ptr;
         vec_append(func_body, vm_compile_SexpObject(e));
       }
 
@@ -503,8 +521,10 @@ Vector *vm_compile_SexpObject(SexpObject *obj) {
 
       Vector *lvars = new_vec();
 
+      // TODO : Need to remove memory leaks(func_body ->
+      // func_body_optにコピーしていない部分をfreeする必要がある)
       for (size_t i = 0; i < func_body->len;) {
-        Opcode op = (Opcode)func_body->data[i++];
+        Opcode op = (Opcode)func_body->data[i++]->ptr;
         const int op_width = op_width_table[op] - 1;
 
         switch (op) {
@@ -518,7 +538,7 @@ Vector *vm_compile_SexpObject(SexpObject *obj) {
         case OpVarDef:
         case OpGetVar:
         case OpSetVar: {
-          sds var_name = (sds)func_body->data[i++];
+          sds var_name = (sds)func_body->data[i++]->ptr;
 
           ssize_t found = -1;
           size_t arg_names_len = 0;
@@ -530,11 +550,12 @@ Vector *vm_compile_SexpObject(SexpObject *obj) {
             if (op == OpVarDef || op == OpSetVar) {
               ssize_t lvar_idx_1 = -1;
               if (op == OpVarDef) {
-                vec_push(lvars, var_name);
+                vec_push(lvars, new_GeneralPointer(var_name,
+                                                   (ELEM_DESTRUCTOR)&sdsfree));
                 lvar_idx_1 = lvars->len - 1;
               } else {
                 for (size_t j = 0; j < lvars->len; j++) {
-                  sds lvar_name = (sds)lvars->data[j];
+                  sds lvar_name = (sds)lvars->data[j]->ptr;
                   if (strcmp(var_name, lvar_name) == 0) {
                     lvar_idx_1 = j;
                     break;
@@ -544,7 +565,9 @@ Vector *vm_compile_SexpObject(SexpObject *obj) {
 
               if (lvar_idx_1 == -1) {
                 vec_pushi(func_body_opt, op);
-                vec_push(func_body_opt, var_name);
+                vec_push(
+                    func_body_opt,
+                    new_GeneralPointer(var_name, (ELEM_DESTRUCTOR)&sdsfree));
               } else {
                 size_t lvar_idx = arg_names_len + lvar_idx_1;
                 vec_pushi(func_body_opt, OpSetLocal);
@@ -553,7 +576,7 @@ Vector *vm_compile_SexpObject(SexpObject *obj) {
             } else {
               ssize_t found_lvar = -1;
               for (size_t j = 0; j < lvars->len; j++) {
-                sds lvar_name = (sds)lvars->data[j];
+                sds lvar_name = (sds)lvars->data[j]->ptr;
                 if (strcmp(var_name, lvar_name) == 0) {
                   found_lvar = j;
                   break;
@@ -562,7 +585,9 @@ Vector *vm_compile_SexpObject(SexpObject *obj) {
               if (found_lvar == -1) {
                 // if not found, raise exception by OpGetVar
                 vec_pushi(func_body_opt, op);
-                vec_push(func_body_opt, var_name);
+                vec_push(
+                    func_body_opt,
+                    new_GeneralPointer(var_name, (ELEM_DESTRUCTOR)&sdsfree));
               } else {
                 ssize_t lvar_idx = arg_names_len + found_lvar;
                 vec_pushi(func_body_opt, OpGetLocal);
@@ -578,7 +603,6 @@ Vector *vm_compile_SexpObject(SexpObject *obj) {
         }
         }
       }
-      xfree(&func_body);
 
       func_body = new_vec();
 
@@ -608,13 +632,14 @@ Vector *vm_compile_SexpObject(SexpObject *obj) {
 
       VMFunction *vmf = new_VMFunction(e1->symbol_val, func_body, arg_names);
       vec_pushi(ret, OpFuncDef);
-      vec_push(ret, new_VMValueWithFunc(vmf));
+      vec_push(ret, new_GeneralPointer(new_VMValueWithFunc(vmf),
+                                       (ELEM_DESTRUCTOR)&free_VMValue));
 
-      xfree(&lvars);
+      free_vec(lvars);
     } else if (sdscmp(func_name, IF_STR) == 0) { // IF
       assert(v->len >= 3);
-      SexpObject *cond = v->data[1];
-      SexpObject *tBlock = v->data[2];
+      SexpObject *cond = v->data[1]->ptr;
+      SexpObject *tBlock = v->data[2]->ptr;
 
       vec_append(ret, vm_compile_SexpObject(cond));
 
@@ -627,7 +652,7 @@ Vector *vm_compile_SexpObject(SexpObject *obj) {
       vec_append(ret, tBlock_ins);
 
       if (v->len == 4) { // exist fBlock
-        Vector *fBlock_ins = vm_compile_SexpObject(v->data[3]);
+        Vector *fBlock_ins = vm_compile_SexpObject(v->data[3]->ptr);
         long long int fBlock_len = fBlock_ins->len;
         vec_pushi(ret, OpJumpRel);
         vec_pushi(ret, fBlock_len);
@@ -637,12 +662,12 @@ Vector *vm_compile_SexpObject(SexpObject *obj) {
     } else if (sdscmp(func_name, BEGIN_STR) == 0) { // begin
       assert(v->len >= 2);
       for (size_t i = 1; i < v->len; i++) {
-        vec_append(ret, vm_compile_SexpObject(v->data[i]));
+        vec_append(ret, vm_compile_SexpObject(v->data[i]->ptr));
       }
     } else if (sdscmp(func_name, WHILE_STR) == 0) { // while
       assert(v->len == 3);
-      SexpObject *cond = v->data[1];
-      SexpObject *expr = v->data[2];
+      SexpObject *cond = v->data[1]->ptr;
+      SexpObject *expr = v->data[2]->ptr;
 
       Vector *cond_ins = vm_compile_SexpObject(cond);
       Vector *expr_ins = vm_compile_SexpObject(expr);
@@ -657,24 +682,25 @@ Vector *vm_compile_SexpObject(SexpObject *obj) {
       vec_append(ret, expr_ins);
     } else if (sdscmp(func_name, SET_STR) == 0) {
       assert(v->len == 3);
-      SexpObject *var_name = v->data[1];
+      SexpObject *var_name = v->data[1]->ptr;
       assert(var_name->ty == symbol_ty);
-      SexpObject *expr = v->data[2];
+      SexpObject *expr = v->data[2]->ptr;
       Vector *expr_ins = vm_compile_SexpObject(expr);
 
       vec_append(ret, expr_ins);
       vec_pushi(ret, OpSetVar);
-      vec_push(ret, var_name->symbol_val);
+      vec_push(ret, new_GeneralPointer(var_name->symbol_val,
+                                       (ELEM_DESTRUCTOR)&sdsfree));
     } else {
       size_t i = 0;
 
       for (; i < v->len - 1; i++) {
-        SexpObject *e = (SexpObject *)v->data[i + 1];
+        SexpObject *e = (SexpObject *)v->data[i + 1]->ptr;
         vec_append(ret, vm_compile_SexpObject(e));
       }
 
       vec_pushi(ret, OpCall);
-      vec_push(ret, func_name);
+      vec_push(ret, new_GeneralPointer(func_name, (ELEM_DESTRUCTOR)&sdsfree));
       vec_pushi(ret, i);
     }
     break;
@@ -691,7 +717,7 @@ Vector *vm_compile_SexpObject(SexpObject *obj) {
       size_t i = 0;
 
       for (; i < v->len; i++) {
-        SexpObject *e = (SexpObject *)v->data[i];
+        SexpObject *e = (SexpObject *)v->data[i]->ptr;
         vec_append(ret, vm_compile_SexpObject(e));
       }
 
@@ -716,7 +742,7 @@ Vector *vm_compile(Vector *parsed) {
   Vector *ret = new_vec();
 
   for (size_t i = 0; i < parsed->len; i++) {
-    SexpObject *obj = (SexpObject *)parsed->data[i];
+    SexpObject *obj = (SexpObject *)parsed->data[i]->ptr;
     vec_append(ret, vm_compile_SexpObject(obj));
   }
 
@@ -771,578 +797,7 @@ static inline int get_builtin(sds name) {
   }
 }
 
-#ifdef __ENABLE_DIRECT_THREADED_CODE__
-static inline void **gen_table(void **table, long long int table_len,
-                               Vector *v_ins, void *L_end) {
-  void **ops_ptr = xmalloc(sizeof(void *) * (v_ins->len + 1));
-  for (size_t j = 0; j < v_ins->len; j++) {
-    long long int idx = (long long int)v_ins->data[j];
-    if (idx < table_len) {
-      ops_ptr[j] = table[idx];
-    }
-  }
-  ops_ptr[v_ins->len] = L_end;
-
-  return ops_ptr;
-}
-
-SexpObject *vm_exec(Vector *v_ins) {
-  if (!vm_initialized) {
-    vm_init();
-  }
-
-  SexpObject *ret = NULL;
-  register Stack *stack = new_Stack();
-  register Stack *frame_stack = new_Stack();
-  Frame *frame = new_Frame();
-  frame->v_ins = v_ins;
-  register Registers *reg = frame->registers;
-  size_t bop_argc = 0;
-
-  static void *table[] = {
-      &&L_OpPop,      &&L_OpPush,       &&L_OpAllocLvars,  &&L_OpFreeLvars,
-      &&L_OpGetLocal, &&L_OpSetLocal,   &&L_OpSetArgLocal, &&L_OpAdd,
-      &&L_OpSub,      &&L_OpMul,        &&L_OpDiv,         &&L_OpMod,
-      &&L_OpEq,       &&L_OpNeq,        &&L_OpLt,          &&L_OpLeq,
-      &&L_OpGt,       &&L_OpGeq,        &&L_OpPrint,       &&L_OpPrintln,
-      &&L_OpJumpRel,  &&L_OpFuncDef,    &&L_OpCall,        &&L_OpReturn,
-      &&L_OpVarDef,   &&L_OpGetVar,     &&L_OpSetVar,      &&L_OpBranch,
-      &&L_OpMakeList, &&L_OpSetArgFrom, &&L_OpDumpEnv};
-  static const long long int table_len = sizeof(table) / sizeof(table[0]);
-  void **ops_ptr = gen_table(table, table_len, v_ins, &&L_end);
-
-//    printf("op: %s, reg: %p, reg->pc: %ld\n", #op_name, reg, reg->pc);
-#define DTHC_CASE(op_name, proc_code)                                          \
-  L_##op_name : {                                                              \
-    proc_code;                                                                 \
-    goto *ops_ptr[reg->pc++];                                                  \
-  }
-
-  // start
-  long long int op = (long long int)(intptr_t)v_ins->data[reg->pc++];
-  goto *table[op];
-
-L_MAIN_LOOP:
-  reg->pc++;
-  goto *table[reg->pc];
-
-L_OP_SELECT:
-  goto *table[op];
-
-  DTHC_CASE(OpPop, { pop_Stack(stack); });
-  DTHC_CASE(OpPush, { push_Stack(stack, frame->v_ins->data[reg->pc++]); });
-  DTHC_CASE(OpAllocLvars, {
-    long long int vars = (long long int)frame->v_ins->data[reg->pc++];
-    frame->lvars = new_vec_with(vars);
-  });
-  DTHC_CASE(OpFreeLvars, { xfree(&frame->lvars); });
-  DTHC_CASE(OpGetLocal, {
-    long long int var_idx = (long long int)frame->v_ins->data[reg->pc++];
-    push_Stack(stack, frame->lvars->data[var_idx]);
-  });
-  DTHC_CASE(OpSetLocal, {
-    long long int var_idx = (long long int)frame->v_ins->data[reg->pc++];
-    frame->lvars->data[var_idx] = pop_Stack(stack);
-  });
-  DTHC_CASE(OpSetArgLocal, {
-    long long int var_idx = (long long int)frame->v_ins->data[reg->pc++];
-    frame->lvars->data[var_idx] = frame->args->data[var_idx];
-  });
-  DTHC_CASE(OpAdd, {
-    double r = get_float_val(pop_SexpObject_from_stack(stack));
-    double l = get_float_val(pop_SexpObject_from_stack(stack));
-    push_Stack_VValue(stack, new_SexpObject_float(l + r));
-  })
-  DTHC_CASE(OpSub, {
-    double r = get_float_val(pop_SexpObject_from_stack(stack));
-    double l = get_float_val(pop_SexpObject_from_stack(stack));
-    push_Stack_VValue(stack, new_SexpObject_float(l - r));
-  });
-  DTHC_CASE(OpMul, {
-    double r = get_float_val(pop_SexpObject_from_stack(stack));
-    double l = get_float_val(pop_SexpObject_from_stack(stack));
-    push_Stack_VValue(stack, new_SexpObject_float(l * r));
-  });
-  DTHC_CASE(OpDiv, {
-    double r = get_float_val(pop_SexpObject_from_stack(stack));
-    double l = get_float_val(pop_SexpObject_from_stack(stack));
-    push_Stack_VValue(stack, new_SexpObject_float(l / r));
-  });
-  DTHC_CASE(OpMod, {
-    double r = get_float_val(pop_SexpObject_from_stack(stack));
-    double l = get_float_val(pop_SexpObject_from_stack(stack));
-    push_Stack_VValue(stack, new_SexpObject_float(dmod(l, r)));
-  });
-  DTHC_CASE(OpEq, {
-    VMValue *r = pop_Stack(stack);
-    VMValue *l = pop_Stack(stack);
-    push_Stack_VValue(stack, new_SexpObject_bool(cmp_VMValue(l, r) == 0));
-  });
-  DTHC_CASE(OpNeq, {
-    VMValue *r = pop_Stack(stack);
-    VMValue *l = pop_Stack(stack);
-    push_Stack_VValue(stack, new_SexpObject_bool(cmp_VMValue(l, r) != 0));
-  });
-  DTHC_CASE(OpLt, {
-    VMValue *r = pop_Stack(stack);
-    VMValue *l = pop_Stack(stack);
-    push_Stack_VValue(stack, new_SexpObject_bool(cmp_VMValue(l, r) < 0));
-  });
-  DTHC_CASE(OpLeq, {
-    VMValue *r = pop_Stack(stack);
-    VMValue *l = pop_Stack(stack);
-    push_Stack_VValue(stack, new_SexpObject_bool(cmp_VMValue(l, r) <= 0));
-  });
-  DTHC_CASE(OpGt, {
-    VMValue *r = pop_Stack(stack);
-    VMValue *l = pop_Stack(stack);
-    push_Stack_VValue(stack, new_SexpObject_bool(cmp_VMValue(l, r) > 0));
-  });
-  DTHC_CASE(OpGeq, {
-    VMValue *r = pop_Stack(stack);
-    VMValue *l = pop_Stack(stack);
-    push_Stack_VValue(stack, new_SexpObject_bool(cmp_VMValue(l, r) >= 0));
-  });
-  DTHC_CASE(OpPrint, {
-    VMValue **values = xnewN(VMValue *, bop_argc);
-
-    for (size_t i = 0; i < bop_argc; i++) {
-      values[bop_argc - i - 1] = (VMValue *)pop_Stack(stack);
-    }
-
-    VMValue *val;
-    for (size_t i = 0; bop_argc > 0; bop_argc--, i++) {
-      val = values[i];
-      printf("%s", show_VMValue(val));
-    }
-    xfree(&values);
-  });
-  DTHC_CASE(OpPrintln, {
-    VMValue **values = xnewN(VMValue *, bop_argc);
-
-    for (size_t i = 0; i < bop_argc; i++) {
-      values[bop_argc - i - 1] = (VMValue *)pop_Stack(stack);
-    }
-
-    VMValue *val;
-    for (size_t i = 0; bop_argc > 0; bop_argc--, i++) {
-      val = values[i];
-      printf("%s", show_VMValue(val));
-    }
-    printf("\n");
-    xfree(&values);
-  });
-  DTHC_CASE(OpJumpRel, {
-    long long int lv = (long long int)(intptr_t)frame->v_ins->data[reg->pc++];
-    reg->pc += lv;
-  });
-  DTHC_CASE(OpFuncDef, {
-    VMValue *vfptr = frame->v_ins->data[reg->pc++];
-    VMFunction *vmf = get_func_VMValue(vfptr);
-    insert_Env(frame->env, vmf->name, vfptr);
-  });
-  DTHC_CASE(OpCall, {
-    sds func_name = (sds)frame->v_ins->data[reg->pc++];
-    int bop = get_builtin(func_name);
-    if (bop != -1) {
-      op = bop;
-      bop_argc = (size_t)frame->v_ins->data[reg->pc++];
-      goto L_OP_SELECT;
-    }
-
-    VMValue *v = get_Env(frame->env, func_name);
-
-    if (v == NULL) {
-      fprintf(stderr, "No such a function : %s\n", func_name);
-      exit(EXIT_FAILURE);
-    }
-    VMFunction *vmf = get_func_VMValue(v);
-
-    size_t argc = (size_t)frame->v_ins->data[reg->pc++];
-    Frame *new_frame = new_Frame();
-    new_frame->env = dup_Env(frame->env);
-    new_frame->args = new_vec();
-    new_frame->parent = frame;
-
-    for (size_t i = 0; i < argc; i++) {
-      vec_push(new_frame->args, pop_Stack(stack));
-    }
-
-    new_frame->v_ins = vmf->code;
-
-    push_Stack(frame_stack, (void **)ops_ptr);
-    if (vmf->ops_ptr == NULL) {
-      vmf->ops_ptr = gen_table(table, table_len, vmf->code, &&L_end);
-    }
-    ops_ptr = vmf->ops_ptr;
-
-    push_Stack(frame_stack, frame); // 戻る先のフレーム
-    frame = new_frame;
-    reg = new_frame->registers;
-  });
-  DTHC_CASE(OpReturn, {
-    free_Frame(&frame);
-    frame = pop_Stack(frame_stack); // フレームを復元
-    reg = frame->registers;
-
-    ops_ptr = pop_Stack(frame_stack);
-  });
-  DTHC_CASE(OpVarDef, {
-    sds var_name = (sds)frame->v_ins->data[reg->pc++];
-    VMValue *v = pop_Stack(stack);
-    insert_Env(frame->env, var_name, v);
-    // printf("def! name: %s, val: %s\n", var_name, show_VMValue(v));
-  });
-  DTHC_CASE(OpGetVar, {
-    sds var_name = (sds)frame->v_ins->data[reg->pc++];
-    VMValue *v = get_Env(frame->env, var_name);
-    // printf("get! name: %s, val: %s\n", var_name, show_VMValue(v));
-    push_Stack(stack, v);
-  });
-  DTHC_CASE(OpSetVar, {
-    sds var_name = (sds)frame->v_ins->data[reg->pc++];
-    VMValue *v = pop_Stack(stack);
-    insert_Env(frame->env, var_name, v);
-  });
-  DTHC_CASE(OpBranch, {
-    long long int tBlock_len =
-        (long long int)(intptr_t)frame->v_ins->data[reg->pc++];
-    SexpObject *cond_result = pop_SexpObject_from_stack(stack);
-    assert(cond_result->ty == bool_ty);
-
-    if (!cond_result->bool_val) {
-      reg->pc += tBlock_len;
-    }
-  });
-  DTHC_CASE(OpMakeList, {
-    long long int list_len =
-        (long long int)(intptr_t)frame->v_ins->data[reg->pc++];
-    Vector *list = new_vec_with(list_len);
-    list->len = list_len;
-
-    for (long long int i = list_len - 1; i >= 0; i--) {
-      list->data[i] = pop_Stack(stack);
-    }
-
-    push_Stack_VValue(stack, new_SexpObject_list(list));
-  });
-  DTHC_CASE(OpSetArgFrom, {
-    sds arg_name = (sds)frame->v_ins->data[reg->pc++];
-    size_t arg_idx = (size_t)(intptr_t)frame->v_ins->data[reg->pc++];
-    assert(arg_idx < frame->args->len);
-
-    insert_Env(frame->env, arg_name, frame->args->data[arg_idx]);
-  });
-  DTHC_CASE(OpDumpEnv, {
-    Vector *keys = avl_keys(frame->env->vars);
-    for (size_t i = 0; i < keys->len; i++) {
-      sds key = (sds)keys->data[i];
-      VMValue *v = get_Env(frame->env, key);
-      printf("%s - %s\n", key, v->ty == VValue ? "VValue" : "VFunc");
-    }
-  });
-
-L_end:
-  // 戻るべきフレームが存在する．
-  if (frame->parent != NULL) {
-    free_Frame(&frame);
-    frame = pop_Stack(frame_stack); // フレームを復元
-    reg = frame->registers;
-    ops_ptr = (void **)pop_Stack(frame_stack);
-    goto L_MAIN_LOOP;
-  }
-
-  if (!isempty_Stack(stack)) {
-    ret = (SexpObject *)pop_Stack(stack);
-  }
-
-  return ret;
-}
-
-#else
-
-SexpObject *vm_exec(Vector *v_ins) {
-  if (!vm_initialized) {
-    vm_init();
-  }
-
-  SexpObject *ret = NULL;
-  Stack *stack = new_Stack();
-  Stack *frame_stack = new_Stack();
-  Frame *frame = new_Frame();
-  frame->v_ins = v_ins;
-  Registers *reg = frame->registers;
-  size_t bop_argc = 0;
-
-MAIN_LOOP:
-  for (; reg->pc < frame->v_ins->len;) {
-    Opcode op = (Opcode)frame->v_ins->data[reg->pc++];
-    // printf("op: %lld, reg: %p, reg->pc: %lld\n", op, reg, reg->pc);
-  OP_SELECT:
-    switch (op) {
-    case OpPop:
-      pop_Stack(stack);
-      break;
-    case OpPush:
-      push_Stack(stack, frame->v_ins->data[reg->pc++]);
-      break;
-
-    case OpAllocLvars: {
-      long long int vars = (long long int)frame->v_ins->data[reg->pc++];
-      frame->lvars = new_vec_with(vars);
-      break;
-    }
-    case OpFreeLvars: {
-      xfree(&frame->lvars);
-      break;
-    }
-    case OpGetLocal: {
-      long long int var_idx = (long long int)frame->v_ins->data[reg->pc++];
-      push_Stack(stack, frame->lvars->data[var_idx]);
-      break;
-    }
-    case OpSetLocal: {
-      long long int var_idx = (long long int)frame->v_ins->data[reg->pc++];
-      frame->lvars->data[var_idx] = pop_Stack(stack);
-      break;
-    }
-    case OpSetArgLocal: {
-      long long int var_idx = (long long int)frame->v_ins->data[reg->pc++];
-      frame->lvars->data[var_idx] = frame->args->data[var_idx];
-      break;
-    }
-    case OpAdd: {
-      double r = get_float_val(pop_SexpObject_from_stack(stack));
-      double l = get_float_val(pop_SexpObject_from_stack(stack));
-      push_Stack_VValue(stack, new_SexpObject_float(l + r));
-      break;
-    }
-    case OpSub: {
-      double r = get_float_val(pop_SexpObject_from_stack(stack));
-      double l = get_float_val(pop_SexpObject_from_stack(stack));
-      push_Stack_VValue(stack, new_SexpObject_float(l - r));
-      break;
-    }
-    case OpMul: {
-      double r = get_float_val(pop_SexpObject_from_stack(stack));
-      double l = get_float_val(pop_SexpObject_from_stack(stack));
-      push_Stack_VValue(stack, new_SexpObject_float(l * r));
-      break;
-    }
-    case OpDiv: {
-      double r = get_float_val(pop_SexpObject_from_stack(stack));
-      double l = get_float_val(pop_SexpObject_from_stack(stack));
-      push_Stack_VValue(stack, new_SexpObject_float(l / r));
-      break;
-    }
-    case OpMod: {
-      double r = get_float_val(pop_SexpObject_from_stack(stack));
-      double l = get_float_val(pop_SexpObject_from_stack(stack));
-      push_Stack_VValue(stack, new_SexpObject_float(dmod(l, r)));
-      break;
-    }
-    case OpEq: {
-      VMValue *r = pop_Stack(stack);
-      VMValue *l = pop_Stack(stack);
-      push_Stack_VValue(stack, new_SexpObject_bool(cmp_VMValue(l, r) == 0));
-      break;
-    }
-    case OpNeq: {
-      VMValue *r = pop_Stack(stack);
-      VMValue *l = pop_Stack(stack);
-      push_Stack_VValue(stack, new_SexpObject_bool(cmp_VMValue(l, r) != 0));
-      break;
-    }
-    case OpLt: {
-      VMValue *r = pop_Stack(stack);
-      VMValue *l = pop_Stack(stack);
-      push_Stack_VValue(stack, new_SexpObject_bool(cmp_VMValue(l, r) < 0));
-      break;
-    }
-    case OpLeq: {
-      VMValue *r = pop_Stack(stack);
-      VMValue *l = pop_Stack(stack);
-      push_Stack_VValue(stack, new_SexpObject_bool(cmp_VMValue(l, r) <= 0));
-      break;
-    }
-    case OpGt: {
-      VMValue *r = pop_Stack(stack);
-      VMValue *l = pop_Stack(stack);
-      push_Stack_VValue(stack, new_SexpObject_bool(cmp_VMValue(l, r) > 0));
-      break;
-    }
-    case OpGeq: {
-      VMValue *r = pop_Stack(stack);
-      VMValue *l = pop_Stack(stack);
-      push_Stack_VValue(stack, new_SexpObject_bool(cmp_VMValue(l, r) >= 0));
-      break;
-    }
-    case OpPrint: {
-      VMValue **values = xnewN(VMValue *, bop_argc);
-
-      for (size_t i = 0; i < bop_argc; i++) {
-        values[bop_argc - i - 1] = (VMValue *)pop_Stack(stack);
-      }
-
-      VMValue *val;
-      for (size_t i = 0; bop_argc > 0; bop_argc--, i++) {
-        val = values[i];
-        printf("%s", show_VMValue(val));
-      }
-      break;
-    }
-    case OpPrintln: {
-      VMValue **values = xnewN(VMValue *, bop_argc);
-
-      for (size_t i = 0; i < bop_argc; i++) {
-        values[bop_argc - i - 1] = (VMValue *)pop_Stack(stack);
-      }
-
-      VMValue *val;
-      for (size_t i = 0; bop_argc > 0; bop_argc--, i++) {
-        val = values[i];
-        printf("%s", show_VMValue(val));
-      }
-      printf("\n");
-      xfree(&values);
-      break;
-    }
-    case OpJumpRel: {
-      long long int lv = (long long int)(intptr_t)frame->v_ins->data[reg->pc++];
-      reg->pc += lv;
-      break;
-    }
-    case OpFuncDef: {
-      VMValue *vfptr = frame->v_ins->data[reg->pc++];
-      VMFunction *vmf = get_func_VMValue(vfptr);
-      insert_Env(frame->env, vmf->name, vfptr);
-      break;
-    }
-    case OpCall: {
-      sds func_name = (sds)frame->v_ins->data[reg->pc++];
-      int bop = get_builtin(func_name);
-      if (bop != -1) {
-        op = bop;
-        bop_argc = (size_t)frame->v_ins->data[reg->pc++];
-        goto OP_SELECT;
-      }
-
-      VMValue *v = get_Env(frame->env, func_name);
-
-      if (v == NULL) {
-        fprintf(stderr, "No such a function : %s\n", func_name);
-        exit(EXIT_FAILURE);
-      }
-      VMFunction *vmf = get_func_VMValue(v);
-
-      size_t argc = (size_t)frame->v_ins->data[reg->pc++];
-      Frame *new_frame = new_Frame();
-      new_frame->env = dup_Env(frame->env);
-      new_frame->args = new_vec();
-      new_frame->parent = frame;
-
-      for (size_t i = 0; i < argc; i++) {
-        vec_push(new_frame->args, pop_Stack(stack));
-      }
-
-      new_frame->v_ins = vmf->code;
-
-      push_Stack(frame_stack, frame); // 戻る先のフレーム
-      frame = new_frame;
-      reg = new_frame->registers;
-      break;
-    }
-    case OpReturn: {
-      free_Frame(&frame);
-      frame = pop_Stack(frame_stack); // フレームを復元
-      reg = frame->registers;
-      break;
-    }
-    case OpVarDef: {
-      sds var_name = (sds)frame->v_ins->data[reg->pc++];
-      VMValue *v = pop_Stack(stack);
-      insert_Env(frame->env, var_name, v);
-      // printf("def! name: %s, val: %s\n", var_name, show_VMValue(v));
-      break;
-    }
-    case OpGetVar: {
-      sds var_name = (sds)frame->v_ins->data[reg->pc++];
-      VMValue *v = get_Env(frame->env, var_name);
-      // printf("get! name: %s, val: %s\n", var_name, show_VMValue(v));
-      push_Stack(stack, v);
-      break;
-    }
-    case OpSetVar: {
-      sds var_name = (sds)frame->v_ins->data[reg->pc++];
-      VMValue *v = pop_Stack(stack);
-      insert_Env(frame->env, var_name, v);
-      break;
-    }
-    case OpBranch: {
-      long long int tBlock_len =
-          (long long int)(intptr_t)frame->v_ins->data[reg->pc++];
-      SexpObject *cond_result = pop_SexpObject_from_stack(stack);
-      assert(cond_result->ty == bool_ty);
-
-      if (!cond_result->bool_val) {
-        reg->pc += tBlock_len;
-      }
-      break;
-    }
-    case OpMakeList: {
-      long long int list_len =
-          (long long int)(intptr_t)frame->v_ins->data[reg->pc++];
-      Vector *list = new_vec_with(list_len);
-      list->len = list_len;
-
-      for (long long int i = list_len - 1; i >= 0; i--) {
-        list->data[i] = pop_Stack(stack);
-      }
-
-      push_Stack_VValue(stack, new_SexpObject_list(list));
-      break;
-    }
-    case OpSetArgFrom: {
-      sds arg_name = (sds)frame->v_ins->data[reg->pc++];
-      size_t arg_idx = (size_t)(intptr_t)frame->v_ins->data[reg->pc++];
-      assert(arg_idx < frame->args->len);
-
-      // printf("OpSetArgFrom! name: %s, data: %s\n", arg_name,
-      // show_VMValue(frame->args->data[arg_idx]));
-      insert_Env(frame->env, arg_name, frame->args->data[arg_idx]);
-      break;
-    }
-    case OpDumpEnv: {
-      Vector *keys = avl_keys(frame->env->vars);
-      for (size_t i = 0; i < keys->len; i++) {
-        sds key = (sds)keys->data[i];
-        VMValue *v = get_Env(frame->env, key);
-        printf("%s - %s\n", key, v->ty == VValue ? "VValue" : "VFunc");
-      }
-      break;
-    }
-    default:
-      fprintf(stderr, "Unkown op given. op: %lld\n", op);
-      exit(EXIT_FAILURE);
-      break;
-    }
-  }
-
-  // 戻るべきフレームが存在する．
-  if (frame->parent != NULL) {
-    free_Frame(&frame);
-    frame = pop_Stack(frame_stack); // フレームを復元
-    reg = frame->registers;
-    goto MAIN_LOOP;
-  }
-
-  if (!isempty_Stack(stack)) {
-    ret = (SexpObject *)pop_Stack(stack);
-  }
-
-  return ret;
-}
-#endif
+#include "vm_exec.generated"
 
 void vm_ins_dump_impl(Vector *v_ins, size_t depth) {
   sds sp = sdsempty();
@@ -1353,28 +808,28 @@ void vm_ins_dump_impl(Vector *v_ins, size_t depth) {
 
   for (size_t i = 0; i < v_ins->len;) {
     printf("%s[ins: %ld] ", sp, i);
-    Opcode op = (Opcode)v_ins->data[i++];
+    Opcode op = (Opcode)v_ins->data[i++]->ptr;
     switch (op) {
     case OpPop:
       printf("OpPop\n");
       break;
     case OpPush:
-      printf("OpPush %s\n", show_VMValue(v_ins->data[i++]));
+      printf("OpPush %s\n", show_VMValue(v_ins->data[i++]->ptr));
       break;
     case OpAllocLvars:
-      printf("OpAllocLvars %lld\n", (long long int)v_ins->data[i++]);
+      printf("OpAllocLvars %lld\n", (long long int)v_ins->data[i++]->ptr);
       break;
     case OpFreeLvars:
       printf("OpFreeLvars\n");
       break;
     case OpGetLocal:
-      printf("OpGetLocal %lld\n", (long long int)v_ins->data[i++]);
+      printf("OpGetLocal %lld\n", (long long int)v_ins->data[i++]->ptr);
       break;
     case OpSetLocal:
-      printf("OpSetLocal %lld\n", (long long int)v_ins->data[i++]);
+      printf("OpSetLocal %lld\n", (long long int)v_ins->data[i++]->ptr);
       break;
     case OpSetArgLocal:
-      printf("OpSetArgLocal %lld\n", (long long int)v_ins->data[i++]);
+      printf("OpSetArgLocal %lld\n", (long long int)v_ins->data[i++]->ptr);
       break;
     case OpAdd: {
       printf("OpAdd\n");
@@ -1429,20 +884,20 @@ void vm_ins_dump_impl(Vector *v_ins, size_t depth) {
       break;
     }
     case OpJumpRel: {
-      long long int offset = (long long int)(intptr_t)v_ins->data[i++];
+      long long int offset = (long long int)(intptr_t)v_ins->data[i++]->ptr;
       printf("OpJumpRel %lld\n", offset);
       break;
     }
     case OpFuncDef: {
-      VMValue *vfptr = v_ins->data[i++];
+      VMValue *vfptr = v_ins->data[i++]->ptr;
       VMFunction *vmf = get_func_VMValue(vfptr);
       printf("OpFuncDef %s\n", vmf->name);
       vm_ins_dump_impl(vmf->code, depth + 1);
       break;
     }
     case OpCall: {
-      sds func_name = (sds)v_ins->data[i++];
-      size_t argc = (size_t)v_ins->data[i++];
+      sds func_name = (sds)v_ins->data[i++]->ptr;
+      size_t argc = (size_t)v_ins->data[i++]->ptr;
       printf("OpCall %s, %ld\n", func_name, argc);
       break;
     }
@@ -1451,22 +906,22 @@ void vm_ins_dump_impl(Vector *v_ins, size_t depth) {
       break;
     }
     case OpVarDef: {
-      sds var_name = (sds)v_ins->data[i++];
+      sds var_name = (sds)v_ins->data[i++]->ptr;
       printf("OpVarDef %s\n", var_name);
       break;
     }
     case OpGetVar: {
-      sds var_name = (sds)v_ins->data[i++];
+      sds var_name = (sds)v_ins->data[i++]->ptr;
       printf("OpGetVar %s\n", var_name);
       break;
     }
     case OpSetVar: {
-      sds var_name = (sds)v_ins->data[i++];
+      sds var_name = (sds)v_ins->data[i++]->ptr;
       printf("OpSetVar %s\n", var_name);
       break;
     }
     case OpBranch: {
-      long long int tBlock_len = (long long int)(intptr_t)v_ins->data[i++];
+      long long int tBlock_len = (long long int)(intptr_t)v_ins->data[i++]->ptr;
       printf("OpBranch %lld\n", tBlock_len);
       break;
     }
@@ -1475,13 +930,13 @@ void vm_ins_dump_impl(Vector *v_ins, size_t depth) {
       break;
     }
     case OpMakeList: {
-      size_t list_len = (intptr_t)v_ins->data[i++];
+      size_t list_len = (intptr_t)v_ins->data[i++]->ptr;
       printf("OpMakeList %ld\n", list_len);
       break;
     }
     case OpSetArgFrom: {
-      sds arg_name = (sds)v_ins->data[i++];
-      size_t arg_idx = (size_t)(intptr_t)v_ins->data[i++];
+      sds arg_name = (sds)v_ins->data[i++]->ptr;
+      size_t arg_idx = (size_t)(intptr_t)v_ins->data[i++]->ptr;
       printf("OpSetArgFrom %s %ld\n", arg_name, arg_idx);
       break;
     }
@@ -1571,7 +1026,7 @@ static Vector *binarize_SexpObject(VMValue *value) {
     } else {
       vec_pushlli(ret, arg_names->len);
       for (size_t i = 0; i < arg_names->len; i++) {
-        sds arg_name = (sds)arg_names->data[i];
+        sds arg_name = (sds)arg_names->data[i]->ptr;
         serialize_string(ret, arg_name);
       }
     }
@@ -1623,20 +1078,20 @@ Vector *vm_binarize(Vector *v_ins) {
   SerializeContext *ctx = new_SerializeContext();
 
   for (size_t i = 0; i < v_ins->len;) {
-    Opcode op = (Opcode)v_ins->data[i++];
+    Opcode op = (Opcode)v_ins->data[i++]->ptr;
 
     switch (op) {
     case OpPop:
       emit_op(ctx, op);
       break;
     case OpPush:
-      emit_op_1arg_vmv(ctx, op, (VMValue *)v_ins->data[i++]);
+      emit_op_1arg_vmv(ctx, op, (VMValue *)v_ins->data[i++]->ptr);
       break;
     case OpAllocLvars:
     case OpGetLocal:
     case OpSetLocal:
     case OpSetArgLocal:
-      emit_op_1arg_llv(ctx, op, (long long int)v_ins->data[i++]);
+      emit_op_1arg_llv(ctx, op, (long long int)v_ins->data[i++]->ptr);
       break;
     case OpFreeLvars:
     case OpAdd:
@@ -1655,18 +1110,18 @@ Vector *vm_binarize(Vector *v_ins) {
       emit_op(ctx, op);
       break;
     case OpJumpRel: {
-      long long int llv = (long long int)v_ins->data[i++];
+      long long int llv = (long long int)v_ins->data[i++]->ptr;
       emit_op_1arg_llv(ctx, op, llv);
       break;
     }
     case OpFuncDef: {
-      VMValue *vfptr = v_ins->data[i++];
+      VMValue *vfptr = v_ins->data[i++]->ptr;
       emit_op_1arg_vmv(ctx, op, vfptr);
       break;
     }
     case OpCall: {
-      sds func_name = (sds)v_ins->data[i++];
-      size_t argc = (size_t)v_ins->data[i++];
+      sds func_name = (sds)v_ins->data[i++]->ptr;
+      size_t argc = (size_t)v_ins->data[i++]->ptr;
       emit_op_2arg_sds_size(ctx, op, func_name, argc);
       break;
     }
@@ -1675,28 +1130,28 @@ Vector *vm_binarize(Vector *v_ins) {
       break;
     }
     case OpVarDef: {
-      sds var_name = (sds)v_ins->data[i++];
+      sds var_name = (sds)v_ins->data[i++]->ptr;
       emit_op_1arg_sds(ctx, op, var_name);
       break;
     }
     case OpGetVar: {
-      sds var_name = (sds)v_ins->data[i++];
+      sds var_name = (sds)v_ins->data[i++]->ptr;
       emit_op_1arg_sds(ctx, op, var_name);
       break;
     }
     case OpBranch: {
-      long long int tBlock_len = (long long int)(intptr_t)v_ins->data[i++];
+      long long int tBlock_len = (long long int)(intptr_t)v_ins->data[i++]->ptr;
       emit_op_1arg_llv(ctx, op, tBlock_len);
       break;
     }
     case OpMakeList: {
-      long long int list_len = (long long int)(intptr_t)v_ins->data[i++];
+      long long int list_len = (long long int)(intptr_t)v_ins->data[i++]->ptr;
       emit_op_1arg_llv(ctx, op, list_len);
       break;
     }
     case OpSetArgFrom: {
-      sds arg_name = (sds)v_ins->data[i++];
-      size_t arg_idx = (size_t)(intptr_t)v_ins->data[i++];
+      sds arg_name = (sds)v_ins->data[i++]->ptr;
+      size_t arg_idx = (size_t)(intptr_t)v_ins->data[i++]->ptr;
       emit_op_2arg_sds_size(ctx, op, arg_name, arg_idx);
       break;
     }
@@ -1731,11 +1186,11 @@ typedef struct {
 static inline DeserializeStringResult deserialize_string(Vector *serialized,
                                                          size_t first_idx) {
   size_t idx = first_idx;
-  size_t str_len = (size_t)serialized->data[idx++];
+  size_t str_len = (size_t)serialized->data[idx++]->ptr;
 
   char *buf = xmalloc(str_len + 1);
   for (size_t i = 0; i < str_len; i++) {
-    char c = (char)serialized->data[idx++];
+    char c = (char)serialized->data[idx++]->ptr;
     buf[i] = c;
   }
   buf[str_len] = '\0';
@@ -1749,17 +1204,19 @@ DeserializeResult deserialize_vmv(Vector *serialized, size_t first_idx) {
   Vector *ret = new_vec();
   size_t idx = first_idx;
 
-  int ty = (intptr_t)serialized->data[idx++];
+  int ty = (intptr_t)serialized->data[idx++]->ptr;
   switch (ty) {
   case VValue: {
-    int obj_ty = (intptr_t)serialized->data[idx++];
+    int obj_ty = (intptr_t)serialized->data[idx++]->ptr;
 
     switch (obj_ty) {
     case float_ty: {
-      long long int lv = (long long int)serialized->data[idx++];
+      long long int lv = (long long int)serialized->data[idx++]->ptr;
       double dv;
       memcpy(&dv, &lv, sizeof(double));
-      vec_push(ret, new_VMValueWithValue(new_SexpObject_float(dv)));
+      vec_push(ret, new_GeneralPointer(
+                        new_VMValueWithValue(new_SexpObject_float(dv)),
+                        (ELEM_DESTRUCTOR)&free_VMValue));
       break;
     }
     case bool_ty: {
@@ -1772,9 +1229,13 @@ DeserializeResult deserialize_vmv(Vector *serialized, size_t first_idx) {
       idx += dsr.read_len;
 
       if (obj_ty == string_ty) {
-        vec_push(ret, new_VMValueWithValue(new_SexpObject_string(dsr.str)));
+        vec_push(ret, new_GeneralPointer(
+                          new_VMValueWithValue(new_SexpObject_string(dsr.str)),
+                          (ELEM_DESTRUCTOR)&free_VMValue));
       } else {
-        vec_push(ret, new_VMValueWithValue(new_SexpObject_symbol(dsr.str)));
+        vec_push(ret, new_GeneralPointer(
+                          new_VMValueWithValue(new_SexpObject_symbol(dsr.str)),
+                          (ELEM_DESTRUCTOR)&free_VMValue));
       }
 
       break;
@@ -1800,13 +1261,13 @@ DeserializeResult deserialize_vmv(Vector *serialized, size_t first_idx) {
     sds func_name = dsr.str;
 
     Vector *func_body_serialized = new_vec();
-    long long int code_len = (long long int)serialized->data[idx++];
+    long long int code_len = (long long int)serialized->data[idx++]->ptr;
     for (long long int i = 0; i < code_len; i++) {
       vec_push(func_body_serialized, serialized->data[idx++]);
     }
     Vector *func_body = vm_deserialize(func_body_serialized);
 
-    size_t arg_count = (size_t)serialized->data[idx++];
+    size_t arg_count = (size_t)serialized->data[idx++]->ptr;
     Vector *args = NULL;
     for (size_t i = 0; i < arg_count; i++) {
       if (i == 0) {
@@ -1816,11 +1277,13 @@ DeserializeResult deserialize_vmv(Vector *serialized, size_t first_idx) {
       DeserializeStringResult arg_dsr = deserialize_string(serialized, idx);
       idx += arg_dsr.read_len;
 
-      vec_push(args, arg_dsr.str);
+      vec_push(args,
+               new_GeneralPointer(arg_dsr.str, (ELEM_DESTRUCTOR)&sdsfree));
     }
 
     VMFunction *vmf = new_VMFunction(func_name, func_body, args);
-    vec_push(ret, new_VMValueWithFunc(vmf));
+    vec_push(ret, new_GeneralPointer(new_VMValueWithFunc(vmf),
+                                     (ELEM_DESTRUCTOR)&free_VMValue));
     break;
   }
   default: {
@@ -1840,8 +1303,8 @@ DeserializeResult deserialize_sds_size(Vector *serialized, size_t first_idx) {
 
   DeserializeStringResult dsr = deserialize_string(serialized, idx);
   idx += dsr.read_len;
-  vec_push(ret, dsr.str);
-  vec_pushi(ret, (size_t)serialized->data[idx++]);
+  vec_push(ret, new_GeneralPointer(dsr.str, (ELEM_DESTRUCTOR)&sdsfree));
+  vec_pushi(ret, (size_t)serialized->data[idx++]->ptr);
 
   DeserializeResult result = {.serialized = ret, .read_len = idx - first_idx};
   return result;
@@ -1858,7 +1321,7 @@ Vector *vm_deserialize(Vector *serialized) {
   Vector *code = new_vec();
 
   for (size_t i = 0; i < serialized->len;) {
-    Opcode op = (Opcode)serialized->data[i++];
+    Opcode op = (Opcode)serialized->data[i++]->ptr;
 
     switch (op) {
     case OpPop:
@@ -1876,7 +1339,7 @@ Vector *vm_deserialize(Vector *serialized) {
     case OpSetLocal:
     case OpSetArgLocal: {
       vec_pushi(code, op);
-      long long int lv = (long long int)serialized->data[i++];
+      long long int lv = (long long int)serialized->data[i++]->ptr;
       vec_pushlli(code, lv);
       break;
     }
@@ -1898,7 +1361,7 @@ Vector *vm_deserialize(Vector *serialized) {
       break;
     case OpJumpRel: {
       vec_pushi(code, op);
-      long long int lv = (long long int)serialized->data[i++];
+      long long int lv = (long long int)serialized->data[i++]->ptr;
       vec_pushlli(code, lv);
       break;
     }
@@ -1925,14 +1388,14 @@ Vector *vm_deserialize(Vector *serialized) {
     case OpGetVar: {
       vec_pushi(code, op);
       DeserializeStringResult dsr = deserialize_string(serialized, i);
-      vec_push(code, dsr.str);
+      vec_push(code, new_GeneralPointer(dsr.str, (ELEM_DESTRUCTOR)&sdsfree));
       i += dsr.read_len;
       break;
     }
     case OpBranch:
     case OpMakeList: {
       vec_pushi(code, op);
-      long long int lv = (long long int)serialized->data[i++];
+      long long int lv = (long long int)serialized->data[i++]->ptr;
       vec_pushlli(code, lv);
       break;
     }

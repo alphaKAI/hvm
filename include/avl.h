@@ -26,8 +26,8 @@ AVLTree *new_AVLTree(ELEM_COMPARE compare);
 
 typedef void (*ELEM_FREE)(void *);
 
-void free_AVLNode(AVLNode **n_ptr, ELEM_FREE free_key, ELEM_FREE free_val);
-void free_AVLTree(AVLTree **t_ptr, ELEM_FREE free_key, ELEM_FREE free_val);
+void free_AVLNode(AVLNode *n_ptr, ELEM_FREE free_key, ELEM_FREE free_val);
+void free_AVLTree(AVLTree *t_ptr, ELEM_FREE free_key, ELEM_FREE free_val);
 
 typedef int (*ELEM_COMPARE)(void *, void *);
 
@@ -49,7 +49,7 @@ void avl_print_node(AVLNode *node, size_t depth, ELEM_PRINTER key_printer,
 void avl_print_tree(AVLTree *tree, ELEM_PRINTER key_printer,
                     ELEM_PRINTER value_printer);
 
-Vector *avl_values(AVLTree *tree);
-Vector *avl_keys(AVLTree *tree);
+Vector *avl_values(AVLTree *tree, ELEM_FREE free_func);
+Vector *avl_keys(AVLTree *tree, ELEM_FREE free_func);
 
 #endif

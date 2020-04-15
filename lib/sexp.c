@@ -40,7 +40,9 @@ SexpObject *dup_SexpObject(SexpObject *obj) {
     Vector *v = obj->list_val;
     Vector *nv = new_vec();
     for (size_t i = 0; i < v->len; i++) {
-      vec_push(nv, dup_SexpObject((SexpObject *)v->data[i]));
+      vec_push(nv,
+               new_GeneralPointer(dup_SexpObject((SexpObject *)v->data[i]->ptr),
+                                  (ELEM_DESTRUCTOR)&free_SexpObject));
     }
     new_obj->list_val = nv;
     break;
@@ -61,33 +63,33 @@ SexpObject *dup_SexpObject(SexpObject *obj) {
   return new_obj;
 }
 
-void free_SexpObject(SexpObject **obj_ptr) {
-  switch ((*obj_ptr)->ty) {
+void free_SexpObject(SexpObject *obj_ptr) {
+  switch (obj_ptr->ty) {
 
   case float_ty:
   case bool_ty:
     break;
   case string_ty: {
-    sdsfree((*obj_ptr)->string_val);
+    sdsfree(obj_ptr->string_val);
     break;
   }
   case symbol_ty: {
-    sdsfree((*obj_ptr)->symbol_val);
+    sdsfree(obj_ptr->symbol_val);
     break;
   }
   case list_ty: {
-    Vector *v = (*obj_ptr)->list_val;
+    Vector *v = obj_ptr->list_val;
     for (size_t i = 0; i < v->len; i++) {
-      free_SexpObject(v->data[i]);
+      free_GeneralPointer(v->data[i]);
     }
     break;
   }
   case object_ty: {
-    free_SexpObject(&(*obj_ptr)->object_val);
+    free_SexpObject(obj_ptr->object_val);
     break;
   }
   case quote_ty: {
-    free_SexpObject(&(*obj_ptr)->quote_val);
+    free_SexpObject(obj_ptr->quote_val);
     break;
   }
   default:
@@ -95,7 +97,7 @@ void free_SexpObject(SexpObject **obj_ptr) {
     exit(EXIT_FAILURE);
   }
 
-  xfree(obj_ptr);
+  free(obj_ptr);
 }
 
 #define GenSexpObjectConstructorWithName(T, Name)                              \
@@ -155,8 +157,8 @@ bool equal_SexpObjects(SexpObject *lhs, SexpObject *rhs) {
     }
 
     for (size_t i = 0; i < lv->len; i++) {
-      SexpObject *le = lv->data[i];
-      SexpObject *re = rv->data[i];
+      SexpObject *le = lv->data[i]->ptr;
+      SexpObject *re = rv->data[i]->ptr;
 
       if (!equal_SexpObjects(le, re)) {
         return false;
@@ -216,7 +218,8 @@ ParseResult parse_list(sds str) {
   for (; j < strlen(contents);) {
     tmp_result = sexp_parseExpr(&contents[j]);
     if (tmp_result.parse_result != NULL) {
-      vec_push(list, tmp_result.parse_result);
+      vec_push(list, new_GeneralPointer(tmp_result.parse_result,
+                                        (ELEM_DESTRUCTOR)&free_GeneralPointer));
       tmp_result.parse_result = NULL;
     }
     j += tmp_result.read_len;
@@ -381,7 +384,8 @@ Vector *sexp_parse(sds code) {
   for (size_t i = 0; i < strlen(code);) {
     ParseResult result = sexp_parseExpr(&code[i]);
     if (result.parse_result != NULL) {
-      vec_push(ret, result.parse_result);
+      vec_push(ret, new_GeneralPointer(result.parse_result,
+                                       (ELEM_DESTRUCTOR)&free_SexpObject));
     }
     i += result.read_len;
   }
@@ -413,9 +417,14 @@ sds show_sexp_object_impl(SexpObject *obj, bool display_string_dq) {
     Vector *elems = obj->list_val;
     Vector *elems_str = new_vec();
     for (size_t i = 0; i < elems->len; i++) {
-      vec_push(elems_str, show_sexp_object((SexpObject *)elems->data[i]));
+      vec_push(elems_str,
+               new_GeneralPointer(
+                   show_sexp_object((SexpObject *)elems->data[i]->ptr),
+                   (ELEM_DESTRUCTOR)&sdsfree));
     }
     ret = sdscatprintf(ret, "(%s)", vecstrjoin(elems_str, " "));
+
+    free_vec(elems_str);
     break;
   }
   case object_ty: {

@@ -66,26 +66,26 @@ double parseDouble(sds str) {
   }
 
   for (; cursor < strlen(str) && str[cursor] != '.'; cursor++) {
-    vec_push(d, INT_TO_VoPTR(str[cursor]));
+    vec_pushi(d, str[cursor]);
   }
 
   size_t d_len = d->len;
   for (size_t i = 0; i < d_len; i++) {
     size_t j = d_len - i - 1;
-    double v = ASCII_NUM_TO_INT(VoPTR_TO_INT(d->data[i])) * dpow(10, j);
+    double v = ASCII_NUM_TO_INT(VoPTR_TO_INT(d->data[i]->ptr)) * dpow(10, j);
     ret += v;
   }
 
   if (cursor != strlen(str) - 1) {
     cursor += 1; // skip dot
     for (; cursor < strlen(str); cursor++) {
-      vec_push(f, (void *)(intptr_t)str[cursor]);
+      vec_pushi(f, str[cursor]);
     }
 
     size_t f_len = f->len;
     for (size_t i = 0; i < f_len; i++) {
       size_t j = i + 1;
-      double v = ASCII_NUM_TO_INT(VoPTR_TO_INT(f->data[i])) / dpow(10, j);
+      double v = ASCII_NUM_TO_INT(VoPTR_TO_INT(f->data[i]->ptr)) / dpow(10, j);
       ret += v;
     }
   }
@@ -93,6 +93,9 @@ double parseDouble(sds str) {
   if (neg) {
     ret *= -1;
   }
+
+  free_vec(d);
+  free_vec(f);
 
   return ret;
 }
@@ -132,8 +135,14 @@ double parseDouble(sds str) {
 GenParseNumber(int);
 GenParseNumber(size_t);
 
-sds vecstrjoin(Vector *strs, sds sep) {
-  return sdsjoin((char **)strs->data, strs->len, sep);
+sds vecstrjoin(Vector *v_strs, sds sep) {
+  char **strs = xnewN(char *, v_strs->len);
+  for (size_t i = 0; i < v_strs->len; i++) {
+    strs[i] = v_strs->data[i]->ptr;
+  }
+  sds ret = sdsjoin(strs, v_strs->len, sep);
+  free(strs);
+  return ret;
 }
 
 #define min(a, b) (a < b ? a : b)
