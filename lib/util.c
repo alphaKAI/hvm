@@ -25,17 +25,24 @@ void *xmalloc(size_t size) {
   return ptr;
 }
 
-void xfreeImpl(void **p_ptr) {
+void xfree(void *ptr) {
 #ifdef __USE_BOEHM_GC__
-  gc_free(*p_ptr);
+  gc_free(ptr);
 #else
-  if (p_ptr == NULL || *p_ptr == NULL) {
+  if (ptr == NULL) {
     fprintf(stderr, "Given pointer is NULL");
     exit(EXIT_FAILURE);
   }
 
-  free(*p_ptr);
-  *p_ptr = NULL;
+  free(ptr);
+#endif
+}
+
+void *xrealloc(void *ptr, size_t size) {
+#ifdef __USE_BOEHM_GC__
+  return gc_realloc(ptr, size);
+#else
+  return realloc(ptr, size);
 #endif
 }
 

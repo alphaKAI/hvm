@@ -64,8 +64,13 @@ sds show_VMValue(VMValue *val) {
     case bool_ty:
     case symbol_ty:
     case string_ty:
+#ifdef HVM_DEBUG
       return sdscatprintf(sdsempty(), "%s (ptr: %p)",
                           show_sexp_object_impl(val->val, false), val);
+#else
+      return sdscatprintf(sdsempty(), "%s",
+                          show_sexp_object_impl(val->val, false));
+#endif
     case list_ty: {
       sds ret = sdsnew("(");
       Vector *v = val->val->list_val;

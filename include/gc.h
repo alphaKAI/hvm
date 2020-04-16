@@ -3,8 +3,7 @@
 
 #include <stddef.h>
 
-// interface
-void gc_init();
+void gc_init(void);
 
 void *gc_malloc(size_t size);
 

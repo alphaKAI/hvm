@@ -228,7 +228,7 @@ ParseResult parse_list(sds str) {
   assert(str[i] == ')');
   i++; // skip final ')'
 
-  xfree(&contents);
+  xfree(contents);
 
   result.parse_result = new_SexpObject_list(list);
   result.read_len = i;
@@ -268,7 +268,7 @@ ParseResult parse_number(sds str) {
   memcpy(tmp, &str[first], tmp_len);
   tmp[tmp_len] = '\0';
   double val = parseDouble(tmp);
-  xfree(&tmp);
+  xfree(tmp);
 
   result.parse_result = new_SexpObject_float(val);
   result.read_len = i;

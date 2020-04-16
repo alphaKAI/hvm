@@ -19,7 +19,7 @@ int main(int argc, char const *argv[]) {
   }
 
 #ifdef __USE_BOEHM_GC__
-  GC_init();
+  gc_init();
 #endif
 
   vm_init();

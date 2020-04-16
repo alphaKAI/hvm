@@ -8,8 +8,8 @@ typedef int (*ELEM_COMPARE)(void *, void *);
 typedef char *(*ELEM_PRINTER)(void *);
 
 void *xmalloc(size_t);
-#define xfree(ptr_p) (xfreeImpl((void **)ptr_p))
-void xfreeImpl(void **);
+void xfree(void *);
+void *xrealloc(void *ptr, size_t size);
 double parseDouble(sds);
 
 #define xnew(T) (xmalloc(sizeof(T)))

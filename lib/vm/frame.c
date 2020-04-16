@@ -16,7 +16,9 @@ void free_Frame(Frame *frame) {
   free_Registers(frame->registers);
   free_Env(frame->env);
   // TODO: Free Vector
+  /* Don't touch memories which is shallow copied from caller
   free_vec(frame->args);
   free_vec(frame->v_ins);
+  */
   free(frame);
 }
