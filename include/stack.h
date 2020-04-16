@@ -12,10 +12,10 @@ typedef struct {
   size_t elem_count;
 } Stack;
 
-typedef void (*S_DATA_FREE)();
+typedef void (*S_DATA_FREE)(void);
 typedef sds (*S_DATA_SHOW)(void *);
 
-Stack *new_Stack();
+Stack *new_Stack(void);
 void free_Stack(Stack *s_ptr);
 void push_Stack(Stack *stack, GeneralPointer *val);
 GeneralPointer *pop_Stack(Stack *stack);

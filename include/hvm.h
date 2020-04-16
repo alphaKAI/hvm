@@ -30,8 +30,8 @@
 /////////////       GC    ///////////////
 #include "gc.h"
 
-/////////////  minilisp   ///////////////
-#include "minilisp.h"
+/////////////  VM   ///////////////
+#include "vm/vm.h"
 
 //////////// StopWatch ///////////////
 #include "stopwatch.h"

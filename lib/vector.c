@@ -17,7 +17,7 @@ inline Vector *new_vec_with(size_t capacity) {
   return v;
 }
 
-inline Vector *new_vec() { return new_vec_with(VECTOR_DEFAULT_CAPACITY); }
+inline Vector *new_vec(void) { return new_vec_with(VECTOR_DEFAULT_CAPACITY); }
 
 void free_vec(Vector *vec) {
   if (vec == NULL) {

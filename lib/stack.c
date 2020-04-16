@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-inline Stack *new_Stack() {
+inline Stack *new_Stack(void) {
   Stack *stack = xmalloc(sizeof(Stack));
   stack->data = new_vec_with(STACK_DEFAULT_CAPACITY);
   stack->elem_count = 0;

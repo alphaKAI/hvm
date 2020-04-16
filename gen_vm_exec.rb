@@ -2,6 +2,9 @@ require "tomlrb"
 
 CLANG_FORMAT_CMD="clang-format"
 
+def gen_common_header()
+  puts "//#define VM_EXEC_DEBUG"
+end
 
 def gen_DIRECT_THREADED(instructions)
   helper = %Q[
@@ -85,6 +88,9 @@ L_end:
 
   instructions.each do |op_name, contents|
     puts "L_#{op_name}: {"
+    puts "#ifdef VM_EXEC_DEBUG"
+    puts "printf(\"op: %s, reg: %p, reg->pc: %ld\\n\", \"#{op_name}\", reg, reg->pc);"
+    puts "#endif"
     puts contents["code"]
     puts "goto *ops_ptr[reg->pc++];"
     puts "}"
@@ -112,7 +118,9 @@ def gen_NON_DIRECT_THREADED(instructions)
 MAIN_LOOP:
   for (; reg->pc < frame->v_ins->len;) {
     Opcode op = (Opcode)frame->v_ins->data[reg->pc++]->ptr;
-    // printf("op: %lld, reg: %p, reg->pc: %lld\\n", op, reg, reg->pc);
+    #ifdef VM_EXEC_DEBUG
+      printf("op: %lld, reg: %p, reg->pc: %zu\\n", op_to_string[op], reg, reg->pc);
+    #endif
   OP_SELECT:
     switch (op) {
   ]
@@ -162,6 +170,7 @@ def main()
     instructions[op]["code"] = block_formatted
   end
 
+  gen_common_header()
 
   # Code Gen
   gen_DIRECT_THREADED(instructions)
