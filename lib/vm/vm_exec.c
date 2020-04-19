@@ -2,15 +2,13 @@
 #include <stdlib.h>
 
 static inline SexpObject *pop_SexpObject_from_stack(Stack *stack) {
-  VMValue *v;
-  POP_STACK_WITH_FREE(stack, v);
+  VMValue *v = pop_Stack(stack)->ptr;
   assert(v->ty == VValue);
   return v->val;
 }
 
 static inline VMFunction *pop_func_from_stack(Stack *stack) {
-  VMValue *v;
-  POP_STACK_WITH_FREE(stack, v);
+  VMValue *v = pop_Stack(stack)->ptr;
   assert(v->ty == VFunc);
   return v->func;
 }
