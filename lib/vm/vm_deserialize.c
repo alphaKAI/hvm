@@ -162,6 +162,7 @@ Vector *vm_deserialize(Vector *serialized) {
       vec_pushi(code, OpPush);
       DeserializeResult result = deserialize_vmv(serialized, i);
       vec_append(code, result.serialized);
+      free(result.serialized);
       i += result.read_len;
       break;
     }
@@ -200,6 +201,7 @@ Vector *vm_deserialize(Vector *serialized) {
       vec_pushi(code, op);
       DeserializeResult result = deserialize_vmv(serialized, i);
       vec_append(code, result.serialized);
+      free(result.serialized);
       i += result.read_len;
       break;
     }

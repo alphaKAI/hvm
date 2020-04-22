@@ -29,7 +29,7 @@ static void dump_stack(Stack *stack) {
   Vector *v = stack->data;
   for (size_t i = 0; i < v->len; i++) {
     void *e = v->data[i]->ptr;
-    printf("stack[%ld] %p : \n", i, e);
+    printf("stack[%ld] %s : \n", i, show_VMValue(e));
   }
 }
 

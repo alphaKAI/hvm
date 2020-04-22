@@ -4,6 +4,11 @@ CLANG_FORMAT_CMD="clang-format"
 
 def gen_common_header()
   puts "//#define VM_EXEC_DEBUG"
+  puts "#ifdef HVM_DEBUG"
+  puts "#ifndef VM_EXEC_DEBUG"
+  puts "#define VM_EXEC_DEBUG"
+  puts "#endif"
+  puts "#endif"
 end
 
 def gen_DIRECT_THREADED(instructions)
@@ -76,6 +81,9 @@ L_end:
     ret = (SexpObject *)pop_Stack(stack);
   }
 
+  free_Stack(stack);
+  free_Stack(frame_stack);
+
   return ret;
   ]
 
@@ -119,7 +127,7 @@ MAIN_LOOP:
   for (; reg->pc < frame->v_ins->len;) {
     Opcode op = (Opcode)frame->v_ins->data[reg->pc++]->ptr;
     #ifdef VM_EXEC_DEBUG
-      printf("op: %lld, reg: %p, reg->pc: %zu\\n", op_to_string[op], reg, reg->pc);
+      printf("op: %s, reg: %p, reg->pc: %zu\\n", op_to_string(op), reg, reg->pc);
     #endif
   OP_SELECT:
     switch (op) {
@@ -144,6 +152,9 @@ MAIN_LOOP:
   if (!isempty_Stack(stack)) {
     ret = (SexpObject *)pop_Stack(stack);
   }
+
+  free_Stack(stack);
+  free_Stack(frame_stack);
 
   return ret;
   ]

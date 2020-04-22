@@ -41,9 +41,6 @@ static inline int varcmp(void *lhs, void *rhs) {
 
 #include "vm/frame.h"
 
-// ----------------------------- Compiler  ----------------------------- //
-#include "vm/compiler.h"
-
 // ------------------------- VM-Init ------------------------- //
 
 #include "vm/vm_init.h"

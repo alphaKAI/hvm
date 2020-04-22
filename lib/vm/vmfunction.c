@@ -14,7 +14,9 @@ VMFunction *new_VMFunction(sds name, Vector *code, Vector *arg_names) {
 void free_VMFunction(VMFunction *vmf_ptr) {
   sdsfree(vmf_ptr->name);
   // TODO: Vector destructor
-  free_vec(vmf_ptr->arg_names);
+  if (vmf_ptr->arg_names) {
+    free_vec(vmf_ptr->arg_names);
+  }
   free_vec(vmf_ptr->code);
   xfree(vmf_ptr);
 }

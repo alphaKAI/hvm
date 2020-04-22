@@ -100,7 +100,6 @@ code = """{
   for (size_t i = 0; bop_argc > 0; bop_argc--, i++) {
     val = values[i]->ptr;
     printf("%s", show_VMValue(val));
-    free_GeneralPointer(values[i]);
   }
   free(values);
 }"""
@@ -113,7 +112,6 @@ code = """{
   VMValue *val;
   for (size_t i = 0; bop_argc > 0; bop_argc--, i++) {
     val = values[i]->ptr; printf("%s", show_VMValue(val));
-    free_GeneralPointer(values[i]);
   }
   printf("\\n");
   free(values);
